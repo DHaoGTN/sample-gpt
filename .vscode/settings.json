@@ -1,0 +1,25 @@
+{
+    "cSpell.words": [
+        "Laravel",
+        "Queueable",
+        "tokenable"
+    ],
+    "editor.scrollBeyondLastLine": false,
+    "markdown.preview.scrollEditorWithPreview": false,
+    "markdown.preview.scrollPreviewWithEditor": false,
+    "editor.scrollBeyondLastColumn": 0,
+    "workbench.list.mouseWheelScrollSensitivity": 1,
+    "interactiveWindow.alwaysScrollOnNewCell": false,
+    "terminal.integrated.mouseWheelScrollSensitivity": 0,
+    "editor.fastScrollSensitivity": 0,
+    "editor.scrollbar.scrollByPage": false,
+    "editor.smoothScrolling": false,
+    "editor.stickyScroll.enabled": false,
+    "editor.mouseWheelScrollSensitivity": 0,
+    "editor.scrollPredominantAxis": false,
+    "editor.scrollbar.horizontalScrollbarSize": 0,
+    "editor.scrollbar.verticalScrollbarSize": 0,
+    "workbench.editor.scrollToSwitchTabs": false,
+    "editor.stickyScroll.maxLineCount": 1,
+    "workbench.list.fastScrollSensitivity": 0
+}
