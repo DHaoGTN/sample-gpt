@@ -24,4 +24,15 @@ class TranslateController extends Controller
             return $e->getMessage();
         }
     }
+
+    public function store(Request $request)
+    {
+        // $req = $request->post('text');
+        // return $req;
+        try {
+            return $this->translateService->translate($request->post('text'));
+        } catch (\Exception $e) {
+            return $e->getMessage();
+        }
+    }
 }

@@ -21,7 +21,7 @@ Route::get('/test', function () {
     return 'test';
 });
 Route::get('/translate', 'App\Http\Controllers\TranslateController@index');
-
+Route::post('/translate', 'App\Http\Controllers\TranslateController@store');
 
 Route::post('/register', 'App\Http\Controllers\Auth\AuthController@register');
 Route::post('/login', 'App\Http\Controllers\Auth\AuthController@login');
