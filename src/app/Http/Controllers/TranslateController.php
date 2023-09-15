@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Http\Services\TranslateService;
 use App\Http\Requests\TranslateRequest;
+use Illuminate\Support\Facades\Log;
 
 class TranslateController extends Controller
 {
@@ -21,7 +22,8 @@ class TranslateController extends Controller
         try {
             return $this->translateService->translate($request->query('text'));
         } catch (\Exception $e) {
-            return $e->getMessage();
+            Log::error($e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -32,7 +34,8 @@ class TranslateController extends Controller
         try {
             return $this->translateService->translate($request->post('text'));
         } catch (\Exception $e) {
-            return $e->getMessage();
+            Log::error($e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 }
