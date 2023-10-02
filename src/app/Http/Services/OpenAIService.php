@@ -14,6 +14,7 @@ class OpenAIService
     const MAX_TOKEN_16K = 16000;
     const NUM_LANGUAGE = 6;
     const MAX_TOKEN_PROMPT_FOR_4K = 100;
+    const MAX_TOKEN_PROMPT_FOR_16K = 200;
     const RESPONSE_SUCCESS = 1;
     const RESPONSE_ERR_NETWORK = 10;
     const RESPONSE_ERR_MAX_TOKEN = 20;
@@ -22,7 +23,7 @@ class OpenAIService
     /**
      * Use openai-php/laravel, require php8.1
      */
-    // public function callAPI($prompt)
+    // public function doCallAPIChat($prompt)
     // {
     //     $messages = [
     //         ['role' => 'user', 'content' => $prompt],
@@ -37,44 +38,24 @@ class OpenAIService
     /**
      * Use orhanerday/open-ai, require php7.4
      */
-    public function callAPIChat($prompt, $promptSplit)
+    public function doCallAPIChat($prompt, $model, $maxToken)
     {
         $openAi = new OpenAi(env('OPENAI_API_KEY'));
-        $numTokenPrompt = sizeof(gpt_encode($prompt));
-        // var_dump($numTokenPrompt);
-        if ($numTokenPrompt <= self::MAX_TOKEN_PROMPT_FOR_4K) {
-            // var_dump('4K');
-            $response = $this->doCallAPIChat($openAi, $prompt, self::MODEL_4K, self::MAX_TOKEN_4K);
-            if ($this->getStatusAPIChatSuccess($response) == self::RESPONSE_ERR_MAX_TOKEN) {
-                // var_dump('over4K');
-                $response = $this->doCallAPIChat($openAi, $prompt, self::MODEL_16K, self::MAX_TOKEN_16K);
-            }
-        } else {
-            // var_dump('16K');
-            $response = $this->doCallAPIChat($openAi, $prompt, self::MODEL_16K, self::MAX_TOKEN_16K);
-            if ($this->getStatusAPIChatSuccess($response) == self::RESPONSE_ERR_MAX_TOKEN) {
-                // var_dump('over16K');
-                // Over 16K token, let's use splited string to divide call API into many times.
-                // FIX ME: when I run below code, my server return 504 Gateway Time-out
-                
-                $arrRes = [];
-                foreach ($promptSplit as $subPrompt) {
-                    $response = $this->doCallAPIChat($openAi, $subPrompt, self::MODEL_16K, self::MAX_TOKEN_16K);
-                    $res = $this->getContentResponseAPIChat($response);
-                    if (!$res) // may get error
-                        return false;
-                    array_push($arrRes, $res);
-                    sleep(5);
-                }
-                return implode(" ", $arrRes);
-                
-            }
-        }
-
-        $res = $this->getContentResponseAPIChat($response);
-        
-        return $res;
+        return $openAi->chat([
+            'model' => $model,
+            'messages' => [
+                [
+                    "role" => "assistant",
+                    "content" => $prompt
+                ]
+            ],
+            'temperature' => 1.0,
+            'max_tokens' => $maxToken,
+            'frequency_penalty' => 0,
+            'presence_penalty' => 0,
+        ]);
     }
+    
 
     /**
      * Check for over max tokens, or anything not expected.
@@ -96,6 +77,7 @@ class OpenAIService
         }
         return self::RESPONSE_SUCCESS;
     }
+    
     public function getContentResponseAPIChat($response)
     {
         if ($this->getStatusAPIChatSuccess($response) == self::RESPONSE_SUCCESS) {
@@ -108,23 +90,6 @@ class OpenAIService
             }
         }
         return false;
-    }
-
-    public function doCallAPIChat($openAi, $prompt, $model, $maxToken)
-    {
-        return $openAi->chat([
-            'model' => $model,
-            'messages' => [
-                [
-                    "role" => "assistant",
-                    "content" => $prompt
-                ]
-            ],
-            'temperature' => 1.0,
-            'max_tokens' => $maxToken,
-            'frequency_penalty' => 0,
-            'presence_penalty' => 0,
-        ]);
     }
 
 }

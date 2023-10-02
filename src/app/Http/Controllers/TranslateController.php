@@ -23,7 +23,7 @@ class TranslateController extends Controller
             return $this->translateService->translate($request->query('text'));
         } catch (\Exception $e) {
             Log::error($e->getMessage());
-            return response()->json(['error' => $e->getMessage()], 500);
+            return response()->json(['message' => $e->getMessage()], 500);
         }
     }
 
@@ -35,7 +35,7 @@ class TranslateController extends Controller
             return $this->translateService->translate($request->post('text'));
         } catch (\Exception $e) {
             Log::error($e->getMessage());
-            return response()->json(['error' => $e->getMessage()], 500);
+            return response()->json(['message' => $e->getMessage()], 500);
         }
     }
 }
