@@ -45,6 +45,9 @@ class Handler extends ExceptionHandler
             if ($e instanceof ParsingAPIResponseException) {
                 return response()->json(['message' => $e->getMessage()], 500);
             }
+            if ($e instanceof GetTranslatedTextException) {
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
         });
 
         $this->reportable(function (Throwable $e) {

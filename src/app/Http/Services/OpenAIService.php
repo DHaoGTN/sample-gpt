@@ -12,9 +12,9 @@ class OpenAIService
     const MODEL_16K = 'gpt-3.5-turbo-16k';
     const MAX_TOKEN_4K = 4000;
     const MAX_TOKEN_16K = 16000;
-    const NUM_LANGUAGE = 6;
-    const MAX_TOKEN_PROMPT_FOR_4K = 100;
-    const MAX_TOKEN_PROMPT_FOR_16K = 200;
+    const MAX_TOKEN_PROMPT_FOR_4K = 120;
+    const MIN_TOKEN_PROMPT_FOR_1_LANGUAGE_16K = 250;
+    const MAX_TOKEN_PROMPT_FOR_16K = 250;
     const RESPONSE_SUCCESS = 1;
     const RESPONSE_ERR_NETWORK = 10;
     const RESPONSE_ERR_MAX_TOKEN = 20;
@@ -49,7 +49,7 @@ class OpenAIService
                     "content" => $prompt
                 ]
             ],
-            'temperature' => 1.0,
+            'temperature' => 0.1,
             'max_tokens' => $maxToken,
             'frequency_penalty' => 0,
             'presence_penalty' => 0,

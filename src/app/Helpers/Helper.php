@@ -13,6 +13,12 @@ function gpt_utf8_encode(string $str): string
     }
     return substr($str, 0, $j);
 }
+
+
+function token_len($text) 
+{
+    return sizeof(gpt_encode($text));
+}
 function gpt_encode($text) 
 {
     $bpe_tokens = array();
