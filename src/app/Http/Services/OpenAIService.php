@@ -3,18 +3,16 @@
 namespace App\Http\Services;
 
 // use OpenAI\Laravel\Facades\OpenAI;
-use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 use Orhanerday\OpenAi\OpenAi;
 
 class OpenAIService
 {
     const MODEL_4K = 'gpt-3.5-turbo';
     const MODEL_16K = 'gpt-3.5-turbo-16k';
-    const MAX_TOKEN_4K = 4000;
-    const MAX_TOKEN_16K = 16000;
-    const MAX_TOKEN_PROMPT_FOR_4K = 120;
-    const MIN_TOKEN_PROMPT_FOR_1_LANGUAGE_16K = 250;
-    const MAX_TOKEN_PROMPT_FOR_16K = 250;
+    const MAX_TOKEN_PROMPT_FOR_4K = 900;
+    const MIN_TOKEN_PROMPT_FOR_1_LANGUAGE_16K = 14000;
+    const MAX_TOKEN_PROMPT_FOR_16K = 3600;
     const RESPONSE_SUCCESS = 1;
     const RESPONSE_ERR_NETWORK = 10;
     const RESPONSE_ERR_MAX_TOKEN = 20;
@@ -38,19 +36,19 @@ class OpenAIService
     /**
      * Use orhanerday/open-ai, require php7.4
      */
-    public function doCallAPIChat($prompt, $model, $maxToken)
+    public function doCallAPIChat($prompt, $model)
     {
         $openAi = new OpenAi(env('OPENAI_API_KEY'));
         return $openAi->chat([
             'model' => $model,
             'messages' => [
                 [
-                    "role" => "assistant",
+                    "role" => "user",
                     "content" => $prompt
                 ]
             ],
             'temperature' => 0.1,
-            'max_tokens' => $maxToken,
+            // 'max_tokens' => 4000,
             'frequency_penalty' => 0,
             'presence_penalty' => 0,
         ]);

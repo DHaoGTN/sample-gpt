@@ -37,16 +37,17 @@ class TranslateService
         and return the result in only JSON format like {"en":"xxx", "vi":"xxx", "zh":"xxx", "ko":"xxx", "tw":"xxx", "pt":"xxx"}.
         Do not return "ja" and preachy. The text is: \n """'.$original_text.'""" ';
         
-        $finalResponse = $this->callAPITranslate($prompt, $original_text);
-        // $finalResponse = 
+        $finalContent = $this->callAPITranslate($prompt, $original_text);
+        // $finalContent = 
         // if call api 1 time: '{"en": "Hello. How are you", "vi": "Xin chào. Bạn khoẻ không", "zh": "你好hbjj", "ko": "dsds", "tw": "fvdvd", "pt": "r4rfd" }'; 
         // if split prompt and call api multiple times: '{"en": "Hello."} {"vi": "Xin chào."} {"zh": "你好"}...{"en": "How are you"} {"vi": "Bạn khoẻ không"} {"zh": "adcc"}...
 
-        if (!$finalResponse) throw new ErrorCallAPIException();
-        // $this->parsingGPTResponseToArrayJson($finalResponse); // Old method
-        
+        if (!$finalContent) throw new ErrorCallAPIException();
+        // $this->parsingGPTResponseToArrayJson($finalContent); // Old method
+        Log::info('finalContent: '. $finalContent);
+
         try {
-            $this->getTranslatedForEachLanguage($finalResponse);
+            $this->getTranslatedForEachLanguage($finalContent);
         } catch (\Exception $e) {
             throw new ParsingAPIResponseException();
         }
@@ -58,10 +59,10 @@ class TranslateService
         $numTokenPrompt = token_len($prompt);
         if ($numTokenPrompt <= OpenAIService::MAX_TOKEN_PROMPT_FOR_4K) {
             Log::info('4K');
-            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_4K, OpenAIService::MAX_TOKEN_4K);
+            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_4K);
             if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                 Log::info('over4K');
-                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K, OpenAIService::MAX_TOKEN_16K);
+                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
                 if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                     Log::info('over16K 1');
                     // Over 16K token, let's use splited string to divide call API into many times.
@@ -70,51 +71,51 @@ class TranslateService
             }
         } else {
             Log::info('16K');
-            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K, OpenAIService::MAX_TOKEN_16K);
+            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
             if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                 Log::info('over16K 2');
                 // Over 16K token, let's use splited string to divide call API into many times.
                 return $this->splitPromptForCallAPI($original_text);
             }
         }
-
-        $res = $this->openAIService->getContentResponseAPIChat($response);
+        Log::info('completion: '. json_encode($response));
+        $responseJson = $this->getJsonFromResponse('', $response);
         
-        return $res;
+        return $responseJson;
     }
 
     public function splitPromptForCallAPI($original_text)
     {
         // First, split by 1 language / prompt
         $arrPrompt = $this->createLanguagePrompts($original_text);
-        $res = $this->callAPITranslateMultiple($arrPrompt);
+        $multipleJson = $this->callAPITranslateMultiple($arrPrompt);
 
-        if (!$res) {
+        if (!$multipleJson) {
             Log::info('over16K even if 1 language, or other error.');
             // Let's split by sentences and language
             $arrSentencePrompts = $this->createSentencePrompts($original_text);
-            $res = $this->callAPITranslateMultiple($arrSentencePrompts);
+            $multipleJson = $this->callAPITranslateMultiple($arrSentencePrompts);
         }
-        return $res;
+        return $multipleJson;
     }
 
     public function callAPITranslateMultiple($arrPrompt)
     {
-        $arrRes = [];
+        $arrJson = [];
         foreach ($arrPrompt as $key=>$arrLangPrompt) {
             foreach ($arrLangPrompt as $prompt) {
                 sleep(2);
-                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K, OpenAIService::MAX_TOKEN_16K);
-                // $res = $this->openAIService->getContentResponseAPIChat($response);
-                $res = $this->getJsonFromResponse($key, $response);
+                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
+                // $resContent = $this->openAIService->getContentResponseAPIChat($response);
+                $jsonContent = $this->getJsonFromResponse($key, $response);
                 Log::info('response-'.$key.': '.$response);
-                if (!$res) {
+                if (!$jsonContent) {
                     return false;
                 }
-                array_push($arrRes, $res);
+                array_push($arrJson, $jsonContent);
             }
         }
-        return implode(" ", $arrRes);
+        return implode(" ", $arrJson);
     }
 
     public function getJsonFromResponse($lang, $response)
@@ -231,7 +232,7 @@ class TranslateService
     }
 
     /**
-     * Parsing json response from ChatGPT server to translated string
+     * Parsing json response from ChatGPT to translated string
      * @input: 
      * if call api 1 time: '{"en": "Hello. How are you", "vi": "Xin chào. Bạn khoẻ không", "zh": "你好hbjj", "ko": "dsds", "tw": "fvdvd", "pt": "r4rfd" }'; 
      * if split prompt and call api multiple times: '{"en": "Hello."} {"vi": "Xin chào."} {"zh": "你好"}...{"en": "How are you"} {"vi": "Bạn khoẻ không"} {"zh": "adcc"}...
