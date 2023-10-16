@@ -4,7 +4,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: nginx
+    container_name: gpt-nginx
     ports:
       - "8080:80"
     volumes:
@@ -16,17 +16,17 @@ services:
 
   db:
     image : mysql
-    container_name : mysql
+    container_name : gpt-mysql
     volumes:
       - ./docker/mysql/data:/var/lib/mysql
     ports:
       - "3306:3306"
     environment:
-      MYSQL_DATABASE: sample-gpt
-      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: '${DB_DATABASE}'
+      MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
   
   app:
-    container_name: sample-gpt
+    container_name: gpt
     build: 
       context: ./docker/php
       dockerfile: Dockerfile
@@ -38,7 +38,9 @@ services:
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    container_name: phpmyadmin
+    container_name: gpt-phpmyadmin
+    environment:
+        UPLOAD_LIMIT: 1000000000
     ports:
       - "3400:80"
     depends_on:
