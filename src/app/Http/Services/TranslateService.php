@@ -34,9 +34,10 @@ class TranslateService
     public function translate($original_text)
     {
         $prompt = 'Translate the following text into '.implode(', ', $this->arrLang).' 
-        and return the result in only JSON format like {"en":"xxx", "vi":"xxx", "zh":"xxx", "ko":"xxx", "tw":"xxx", "pt":"xxx"}.
+        and return the result in only JSON format like {"en":"xxx", "vi":"xxx", "zh":"xxx", "ko":"xxx", "tw":"xxx", "pt":"xxx"} (do not add new line character to this json.
         Do not return "ja" and preachy. The text is: \n """'.$original_text.'""" ';
-        
+        // $prompt = 'Translate the following text into '.implode(', ', $this->arrLang).' 
+        // and no return JSON format. The text is: \n """'.$original_text.'""" ';        
         $finalContent = $this->callAPITranslate($prompt, $original_text);
         // $finalContent = 
         // if call api 1 time: '{"en": "Hello. How are you", "vi": "Xin chào. Bạn khoẻ không", "zh": "你好hbjj", "ko": "dsds", "tw": "fvdvd", "pt": "r4rfd" }'; 
@@ -45,9 +46,11 @@ class TranslateService
         if (!$finalContent) throw new ErrorCallAPIException();
         // $this->parsingGPTResponseToArrayJson($finalContent); // Old method
         Log::info('finalContent: '. $finalContent);
-
+        
         try {
             $this->getTranslatedForEachLanguage($finalContent);
+        } catch (GetTranslatedTextException $e) {
+            throw new GetTranslatedTextException();
         } catch (\Exception $e) {
             throw new ParsingAPIResponseException();
         }
@@ -57,13 +60,19 @@ class TranslateService
     public function callAPITranslate($prompt, $original_text)
     {
         $numTokenPrompt = token_len($prompt);
+        Log::info('numTokenPrompt:'. $numTokenPrompt);
         if ($numTokenPrompt <= OpenAIService::MAX_TOKEN_PROMPT_FOR_4K) {
             Log::info('4K');
-            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_4K);
-            if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+            $modelType = 'instruct';
+            // $startTime = microtime(true);
+            $response = $this->openAIService->doCallAPIInstruct($prompt);
+            // $endTime = microtime(true);
+            // Log::info('time: '. $endTime-$startTime);
+            if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                 Log::info('over4K');
+                $modelType = 'chat';
                 $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-                if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+                if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                     Log::info('over16K 1');
                     // Over 16K token, let's use splited string to divide call API into many times.
                     return $this->splitPromptForCallAPI($original_text);
@@ -71,17 +80,16 @@ class TranslateService
             }
         } else {
             Log::info('16K');
+            $modelType = 'chat';
             $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-            if ($this->openAIService->getStatusAPIChatSuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+            if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
                 Log::info('over16K 2');
                 // Over 16K token, let's use splited string to divide call API into many times.
                 return $this->splitPromptForCallAPI($original_text);
             }
         }
-        Log::info('completion: '. json_encode($response));
-        $responseJson = $this->getJsonFromResponse('', $response);
-        
-        return $responseJson;
+        Log::info('response: '. json_encode($response));
+        return $this->getJsonFromResponse('', $response, $modelType);
     }
 
     public function splitPromptForCallAPI($original_text)
@@ -106,8 +114,8 @@ class TranslateService
             foreach ($arrLangPrompt as $prompt) {
                 sleep(2);
                 $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-                // $resContent = $this->openAIService->getContentResponseAPIChat($response);
-                $jsonContent = $this->getJsonFromResponse($key, $response);
+                // $resContent = $this->openAIService->getContentResponseAPIInstruct($response);
+                $jsonContent = $this->getJsonFromResponse($key, $response, 'chat');
                 Log::info('response-'.$key.': '.$response);
                 if (!$jsonContent) {
                     return false;
@@ -118,10 +126,15 @@ class TranslateService
         return implode(" ", $arrJson);
     }
 
-    public function getJsonFromResponse($lang, $response)
+    public function getJsonFromResponse($lang, $response, $modelType='instruct')
     {
-        $content = $this->openAIService->getContentResponseAPIChat($response);
+        if ($modelType == 'chat')
+            $content = $this->openAIService->getContentResponseAPIChat($response);
+        else
+            $content = $this->openAIService->getContentResponseAPIInstruct($response);
+        
         if (!$content) return false;
+        
         $patternJson = '
             /
             \{              # { character
@@ -137,6 +150,8 @@ class TranslateService
             preg_match_all($patternJson, $content, $arrJson);
             
             if (sizeof($arrJson[0]) < 1) {
+                if ($lang == '')
+                    return json_encode($content);
                 return json_encode(array($lang => $content)); // Because sometime response is no json formatting
             } else {
                 return $arrJson[0][0]; // {"en": "Hello", "vi": "Xin chào", "zh": "你好" ...} or each lang: {"en": "Hello"}, ...    
@@ -244,12 +259,12 @@ class TranslateService
     public function getTranslatedForEachLanguage($jsonString)
     {
         // Extract 'en', 'vn',... content using regex
-        preg_match_all('/"en": "(.*?)"/s', $jsonString, $enMatches);
-        preg_match_all('/"vi": "(.*?)"/s', $jsonString, $viMatches);
-        preg_match_all('/"zh": "(.*?)"/s', $jsonString, $zhMatches);
-        preg_match_all('/"ko": "(.*?)"/s', $jsonString, $koMatches);
-        preg_match_all('/"tw": "(.*?)"/s', $jsonString, $twMatches);
-        preg_match_all('/"pt": "(.*?)"/s', $jsonString, $ptMatches);
+        preg_match_all('/"en":"(.*?)"/s', $jsonString, $enMatches);
+        preg_match_all('/"vi":"(.*?)"/s', $jsonString, $viMatches);
+        preg_match_all('/"zh":"(.*?)"/s', $jsonString, $zhMatches);
+        preg_match_all('/"ko":"(.*?)"/s', $jsonString, $koMatches);
+        preg_match_all('/"tw":"(.*?)"/s', $jsonString, $twMatches);
+        preg_match_all('/"pt":"(.*?)"/s', $jsonString, $ptMatches);
 
         // Concatenate the extracted strings for each language
         $enString = implode(' ', $enMatches[1]);
