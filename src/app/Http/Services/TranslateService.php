@@ -11,18 +11,9 @@ use Illuminate\Support\Facades\Log;
 class TranslateService
 {
     private OpenAIService $openAIService;
-    private $arrLang = array();
 
     public function __construct(OpenAIService $openAIService) {
         $this->openAIService = $openAIService;
-        $this->arrLang = array(
-            'en'=>'English',
-            'vi'=>'Vietnamese',
-            'zh'=>'Chinese',
-            'ko'=>'Korean',
-            'tw'=>'Taiwan',
-            'pt'=>'Portugal'
-        );
     }
 
     /**
@@ -31,14 +22,16 @@ class TranslateService
      * If text too long, need split by language: [{"en": "Hello"}, {"vi": "Xin chào"}, ...]
      * If text too long, need split by sentence: [{"en": "Sen1"}, {"vi": "Sen1},...{"en": "Sen2"}, {"vi": "Sen2},...]
      */
-    public function translate($original_text)
+    public function translate($original_text, $arrLang)
     {
-        $prompt = 'Translate the following text into '.implode(', ', $this->arrLang).' 
-        and return the result in only JSON format like {"en":"xxx", "vi":"xxx", "zh":"xxx", "ko":"xxx", "tw":"xxx", "pt":"xxx"} (do not add new line character to this json.
+        $prompt = 'Translate the following text into '.implode(', ', $arrLang).' 
+        and return the result in only JSON format like {"country_code":"translated_text",...} 
+        with country_code is '.implode(', ', array_keys($arrLang)).'.
         Do not return "ja" and preachy. The text is: \n """'.$original_text.'""" ';
         // $prompt = 'Translate the following text into '.implode(', ', $this->arrLang).' 
-        // and no return JSON format. The text is: \n """'.$original_text.'""" ';        
-        $finalContent = $this->callAPITranslate($prompt, $original_text);
+        // and no return JSON format. The text is: \n """'.$original_text.'""" ';
+        Log::info('prompt: '. $prompt);
+        $finalContent = $this->callAPITranslate($prompt, $original_text, $arrLang);
         // $finalContent = 
         // if call api 1 time: '{"en": "Hello. How are you", "vi": "Xin chào. Bạn khoẻ không", "zh": "你好hbjj", "ko": "dsds", "tw": "fvdvd", "pt": "r4rfd" }'; 
         // if split prompt and call api multiple times: '{"en": "Hello."} {"vi": "Xin chào."} {"zh": "你好"}...{"en": "How are you"} {"vi": "Bạn khoẻ không"} {"zh": "adcc"}...
@@ -48,7 +41,7 @@ class TranslateService
         Log::info('finalContent: '. $finalContent);
         
         try {
-            $this->getTranslatedForEachLanguage($finalContent);
+            return $this->getTranslatedForEachLanguage($finalContent);
         } catch (GetTranslatedTextException $e) {
             throw new GetTranslatedTextException();
         } catch (\Exception $e) {
@@ -57,54 +50,69 @@ class TranslateService
         
     }
 
-    public function callAPITranslate($prompt, $original_text)
+    public function callAPITranslate($prompt, $original_text, $arrLang)
     {
-        $numTokenPrompt = token_len($prompt);
-        Log::info('numTokenPrompt:'. $numTokenPrompt);
-        if ($numTokenPrompt <= OpenAIService::MAX_TOKEN_PROMPT_FOR_4K) {
+        $numNewTokenPrompt = token_len_new($prompt);
+        $numTokenPromptAllowed = (OpenAIService::MAX_TOKEN_4K / (count($arrLang)+1))-OpenAIService::BUFFER_TOKEN_FOR_SAFETY;
+        Log::info('numNewTokenPrompt: '.$numNewTokenPrompt);
+        if ($numNewTokenPrompt <= $numTokenPromptAllowed) {
             Log::info('4K');
-            $modelType = 'instruct';
-            // $startTime = microtime(true);
-            $response = $this->openAIService->doCallAPIInstruct($prompt);
-            // $endTime = microtime(true);
-            // Log::info('time: '. $endTime-$startTime);
-            if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+            $startTime = microtime(true);
+            $response = $this->openAIService->doCallAPIInstruct($prompt, OpenAIService::MAX_TOKEN_4K-$numNewTokenPrompt);
+            $endTime = microtime(true);
+            Log::info('time: '. $endTime-$startTime);
+            Log::info('response: '. json_encode($response).'\n');
+            if ($this->openAIService->getStatusAPIInstruct($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN || $this->openAIService->getStatusAPIInstruct($response) == OpenAIService::RESPONSE_ERR_STOP_BY_LENGTH) {
                 Log::info('over4K');
-                $modelType = 'chat';
-                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-                if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
-                    Log::info('over16K 1');
-                    // Over 16K token, let's use splited string to divide call API into many times.
-                    return $this->splitPromptForCallAPI($original_text);
+                if (count($arrLang) > 1) {
+                    return $this->splitPromptForCallAPI($original_text, $arrLang);
+                } else {
+                    return $this->splitPromptSentencesForCallAPI($original_text, $arrLang);
                 }
+                // $modelType = 'chat';
+                // $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
+                // if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+                //     Log::info('over16K 1');
+                //     // Over 16K token, let's use splited string to divide call API into many times.
+                //     return $this->splitPromptForCallAPI($original_text);
+                // }
             }
         } else {
-            Log::info('16K');
-            $modelType = 'chat';
-            $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-            if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
-                Log::info('over16K 2');
-                // Over 16K token, let's use splited string to divide call API into many times.
-                return $this->splitPromptForCallAPI($original_text);
+            Log::info('Split');
+            if (count($arrLang) > 1 && $numNewTokenPrompt <= OpenAIService::MAX_TOKEN_PROMPT_FOR_1_LANGUAGE_4K) {
+                return $this->splitPromptForCallAPI($original_text, $arrLang);
+            } else {
+                return $this->splitPromptSentencesForCallAPI($original_text, $arrLang);
             }
+            // Log::info('16K');
+            // $modelType = 'chat';
+            // $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
+            // if ($this->openAIService->getStatusAPISuccess($response) == OpenAIService::RESPONSE_ERR_MAX_TOKEN) {
+            //     Log::info('over16K 2');
+            //     // Over 16K token, let's use splited string to divide call API into many times.
+            //     return $this->splitPromptForCallAPI($original_text);
+            // }
         }
-        Log::info('response: '. json_encode($response));
-        return $this->getJsonFromResponse('', $response, $modelType);
+        return $this->getJsonFromResponse('', $response);
     }
 
-    public function splitPromptForCallAPI($original_text)
+    public function splitPromptForCallAPI($original_text, $arrLang)
     {
-        // First, split by 1 language / prompt
-        $arrPrompt = $this->createLanguagePrompts($original_text);
+        Log::info('First, split by 1 language / prompt');
+        $arrPrompt = $this->createLanguagePrompts($original_text, $arrLang);
         $multipleJson = $this->callAPITranslateMultiple($arrPrompt);
 
         if (!$multipleJson) {
-            Log::info('over16K even if 1 language, or other error.');
+            Log::info('over max token even if 1 language, or other error -> split sentences');
             // Let's split by sentences and language
-            $arrSentencePrompts = $this->createSentencePrompts($original_text);
-            $multipleJson = $this->callAPITranslateMultiple($arrSentencePrompts);
+            return $this->splitPromptSentencesForCallAPI($original_text, $arrLang);
         }
         return $multipleJson;
+    }
+    public function splitPromptSentencesForCallAPI($original_text, $arrLang)
+    {
+        $arrSentencePrompts = $this->createSentencePrompts($original_text, $arrLang);
+        return $this->callAPITranslateMultiple($arrSentencePrompts);
     }
 
     public function callAPITranslateMultiple($arrPrompt)
@@ -113,9 +121,10 @@ class TranslateService
         foreach ($arrPrompt as $key=>$arrLangPrompt) {
             foreach ($arrLangPrompt as $prompt) {
                 sleep(2);
-                $response = $this->openAIService->doCallAPIChat($prompt, OpenAIService::MODEL_16K);
-                // $resContent = $this->openAIService->getContentResponseAPIInstruct($response);
-                $jsonContent = $this->getJsonFromResponse($key, $response, 'chat');
+                Log::info('prompt-'.$key.': '.$prompt.'\n');
+                $numNewTokenPrompt = token_len_new($prompt);
+                $response = $this->openAIService->doCallAPIInstruct($prompt, OpenAIService::MAX_TOKEN_4K-$numNewTokenPrompt);
+                $jsonContent = $this->getJsonFromResponse($key, $response);
                 Log::info('response-'.$key.': '.$response);
                 if (!$jsonContent) {
                     return false;
@@ -171,10 +180,10 @@ class TranslateService
      *     ],...
      * ]
      */
-    public function createLanguagePrompts($original_text)
+    public function createLanguagePrompts($original_text, $arrLang)
     {
         $promptSplit = [];
-        foreach ($this->arrLang as $key=>$value) {
+        foreach ($arrLang as $key=>$value) {
             $promptSplit[$key] = array('Translate the following text into '.$value.' and return the result in only JSON format with the "'.$key.'" key. Do not return "ja" and preachy. The text is: \n """'.$original_text.'""" ');
         }
         return $promptSplit;
@@ -192,16 +201,22 @@ class TranslateService
      *     ],...
      * ]
      */
-    public function createSentencePrompts($original_text)
+    public function createSentencePrompts($original_text, $arrLang)
     {
         $pattern = '/(?<!Mr\.|Mrs\.|Dr\.)(?<=[.])\s+|(?<=[!?;:。！？])\s*/u';
         $arrSentences = preg_split($pattern, $original_text, -1, PREG_SPLIT_NO_EMPTY);
         $arrSentencePrompts = [];
-        $arrLengthSentences = $this->makeStandardlizeLengthArray($arrSentences, OpenAIService::MIN_TOKEN_PROMPT_FOR_1_LANGUAGE_16K, 1000);
+        $arrLengthSentences = $this->makeStandardlizeLengthArray(
+            $arrSentences,
+            OpenAIService::MAX_TOKEN_PROMPT_FOR_1_LANGUAGE_4K-OpenAIService::BUFFER_TOKEN_FOR_SAFETY,
+            OpenAIService::MAX_TOKEN_PROMPT_FOR_1_LANGUAGE_4K);
         // $samplePrompt = 'Translate this text to {{LANGUAGE}}. Must return JSON only with format {"{{COUNTRY_CODE}}":"<translated_text>"}. Do not return "ja". Do not preachy.\n {{ORIGINAL_TEXT}}';
         $samplePrompt = 'Translate the following text into {{LANGUAGE}} and return the result in only JSON format with the "{{COUNTRY_CODE}}" key. Do not return "ja" and preachy. The text is: \n {{ORIGINAL_TEXT}}';
-        // Log::info('*** Splitted sentences ***\n\n');
-        foreach ($this->arrLang as $key=>$value) {
+        Log::info('*** Splitted sentences ***\n\n');
+        Log::info($arrSentences);
+        Log::info($arrLengthSentences);
+        
+        foreach ($arrLang as $key=>$value) {
             $arrSentenceLangPrompts = [];
             foreach ($arrLengthSentences as $sentence) {
                 array_push($arrSentenceLangPrompts, str_replace(
@@ -214,24 +229,32 @@ class TranslateService
         return $arrSentencePrompts;
     }
 
+    /**
+     * Ensure each array element string length between min, max
+     */
     public function makeStandardlizeLengthArray($arrayInput, $min, $max)
     {
         $arrayOutput = [];
-
         $tempString = '';
-
-        foreach ($arrayInput as $element) {
-            if (token_len($tempString . ' ' . $element) >= $min && token_len($tempString . ' ' . $element) <= $max) {
-                // Add the element to tempString if concatenating results in a string length between 20 and 40
+        $size = count($arrayInput);
+        foreach ($arrayInput as $key=>$element) {
+            $num_token_tmp_elm = token_len_new($tempString . ' ' . $element);
+            $num_token_tmp = token_len_new($tempString);
+            if ($num_token_tmp_elm >= $min && $num_token_tmp_elm <= $max) {
+                // Add the element to tempString if concatenating results in a string length between min and max
                 $tempString .= ' ' . $element;
                 $arrayOutput[] = trim($tempString);
                 $tempString = ''; // Reset tempString
-            } elseif (token_len($tempString . ' ' . $element) < $min) {
+            } elseif ($num_token_tmp_elm < $min) {
                 // If concatenating results in a string length less than 20, add element to tempString
                 $tempString .= ' ' . $element;
+                if ($key == $size-1) {
+                    // If last element, add current tempString to array output
+                    $arrayOutput[] = trim($tempString);
+                }
             } else {
-                // If string length will exceed 40, add current tempString to array B and start a new tempString
-                if (token_len($tempString) >= $min && token_len($tempString) <= $max) {
+                // If string length will exceed max, add current tempString to array output and start a new tempString
+                if ($num_token_tmp >= $min && $num_token_tmp <= $max) {
                     $arrayOutput[] = trim($tempString);
                 }
                 $tempString = $element; // Start new tempString with current element
@@ -239,7 +262,7 @@ class TranslateService
         }
 
         // Handle last tempString if not empty
-        if (token_len($tempString) >= $min && token_len($tempString) <= $max) {
+        if (token_len_new($tempString) >= $min && token_len_new($tempString) <= $max) {
             $arrayOutput[] = trim($tempString);
         }
 
@@ -259,12 +282,12 @@ class TranslateService
     public function getTranslatedForEachLanguage($jsonString)
     {
         // Extract 'en', 'vn',... content using regex
-        preg_match_all('/"en":"(.*?)"/s', $jsonString, $enMatches);
-        preg_match_all('/"vi":"(.*?)"/s', $jsonString, $viMatches);
-        preg_match_all('/"zh":"(.*?)"/s', $jsonString, $zhMatches);
-        preg_match_all('/"ko":"(.*?)"/s', $jsonString, $koMatches);
-        preg_match_all('/"tw":"(.*?)"/s', $jsonString, $twMatches);
-        preg_match_all('/"pt":"(.*?)"/s', $jsonString, $ptMatches);
+        preg_match_all('/"en"\s*:\s*"(.*?)"/s', $jsonString, $enMatches);
+        preg_match_all('/"vi"\s*:\s*"(.*?)"/s', $jsonString, $viMatches);
+        preg_match_all('/"zh"\s*:\s*"(.*?)"/s', $jsonString, $zhMatches);
+        preg_match_all('/"ko"\s*:\s*"(.*?)"/s', $jsonString, $koMatches);
+        preg_match_all('/"tw"\s*:\s*"(.*?)"/s', $jsonString, $twMatches);
+        preg_match_all('/"pt"\s*:\s*"(.*?)"/s', $jsonString, $ptMatches);
 
         // Concatenate the extracted strings for each language
         $enString = implode(' ', $enMatches[1]);
@@ -274,16 +297,19 @@ class TranslateService
         $twString = implode(' ', $twMatches[1]);
         $ptString = implode(' ', $ptMatches[1]);
 
-        echo "*** Translated ***\n\n";
-        echo "- English: $enString\n";
-        echo "- Vietnamese: $viString\n";
-        echo "- Chinese: $zhString\n";
-        echo "- Korean: $koString\n";
-        echo "- Taiwan: $twString\n";
-        echo "- Portugal: $ptString\n";
-        if (!$enString || !$viString || !$zhString || !$koString || !$twString || !$ptString) {
+        if (!$enString && !$viString && !$zhString && !$koString && !$twString && !$ptString) {
             throw new GetTranslatedTextException();
         }
+
+        $translated = array();
+        if ($enString) $translated['en'] = $enString;
+        if ($viString) $translated['vi'] = $viString;
+        if ($zhString) $translated['zh'] = $zhString;
+        if ($koString) $translated['ko'] = $koString;
+        if ($twString) $translated['tw'] = $twString;
+        if ($ptString) $translated['pt'] = $ptString;
+
+        return $translated;
     }
 
     /**

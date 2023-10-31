@@ -18,24 +18,58 @@ class TranslateController extends Controller
 
     public function index(TranslateRequest $request)
     {
-        // return $request->query('text');
-        try {
-            return $this->translateService->translate($request->query('text'));
-        } catch (\Exception $e) {
-            Log::error($e->getMessage());
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
+        return $request->query('original_text');
     }
 
-    public function store(Request $request)
+    /**
+     * @param: request:
+     * translate:
+     * {
+     *   'original_text': 'text to translate',
+     *   'langs': [
+     *     {
+     *       'code': 'en',
+     *       'lang': 'English'
+     *     },
+     *     {
+     *       'code': 'vi',
+     *       'lang': 'Vietnam'
+     *     },
+     *     ...
+     *   ]
+     * }
+     */
+    public function translateMultilanguage(Request $request)
     {
-        // $req = $request->post('text');
-        // return $req;
+        // $arrLang = array(
+        //     'en'=>'English',
+        //     'vi'=>'Vietnamese',
+        //     'zh'=>'Chinese',
+        //     'ko'=>'Korean',
+        //     'tw'=>'Taiwan',
+        //     'pt'=>'Portugal'
+        // );
+        
         try {
-            return $this->translateService->translate($request->post('text'));
+            $param = $request->post('translate');
+            $inputData = json_decode($param, true);
+            $original_text = $inputData['original_text'];
+            $arrLang = [];
+            // Populate the $arrLang array from the "langs" data
+            if (isset($inputData['langs']) && is_array($inputData['langs'])) {
+                foreach ($inputData['langs'] as $langData) {
+                    if (isset($langData['code']) && isset($langData['lang'])) {
+                        $arrLang[$langData['code']] = $langData['lang'];
+                    }
+                }
+            }
+            $result = $this->translateService->translate($original_text, $arrLang);
+            Log::info("Translated returned...\n\n". json_encode($result));
+            return json_encode($result);
         } catch (\Exception $e) {
             Log::error($e->getMessage());
             return response()->json(['message' => $e->getMessage()], 500);
         }
     }
+    
 }

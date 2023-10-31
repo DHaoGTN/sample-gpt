@@ -19,6 +19,28 @@ function token_len($text)
 {
     return sizeof(gpt_encode($text));
 }
+/**
+ * For temporary:
+ * About tokenizer of new GPT, 
+ * The number of tokens according to the old calculation method 
+ * is 1.5 - 2 times the new calculation
+ * (because I can not find the php tool for new calculation method)
+ */
+function token_len_new($text) 
+{
+    // For safety, get higher value
+    return max_token_len_new($text);
+}
+function max_token_len_new($text) 
+{
+    $old_num = token_len($text);
+    return (int)($old_num/1.5);
+}
+function min_token_len_new($text) 
+{
+    $old_num = token_len($text);
+    return (int)($old_num/2);
+}
 function gpt_encode($text) 
 {
     $bpe_tokens = array();
