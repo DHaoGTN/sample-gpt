@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
+use Illuminate\Support\Facades\Log;
 
 class Handler extends ExceptionHandler
 {
@@ -34,6 +35,21 @@ class Handler extends ExceptionHandler
      */
     public function register()
     {
+        $this->renderable(function (\Exception $e) {
+            Log::error('error', ['message', $e->getMessage()]);
+            Log::error('stackTrace', $e->getTrace());
+
+            if ($e instanceof ErrorCallAPIException) {
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+            if ($e instanceof ParsingAPIResponseException) {
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+            if ($e instanceof GetTranslatedTextException) {
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+        });
+
         $this->reportable(function (Throwable $e) {
             //
         });
